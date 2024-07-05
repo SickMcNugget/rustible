@@ -1,0 +1,10 @@
+- name: Download repo
+  hosts: localhost
+  remote_usr: root
+
+  tasks:
+  - name: Git checkout
+    rustible.builtin.git:
+      repo: "https://github.com/SickMcNugget/Waste_Detection_New.git"
+      dest: Waste_Detection_New
+      version: detr_setup
