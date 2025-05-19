@@ -1,6 +1,25 @@
 use std::env;
+use std::fmt;
+use std::fs::File;
+use std::io::BufReader;
+use std::io::Read;
+// use std::io;
 use std::process::Command;
 
+// FK it, just use the magic bytes at the beginning of the files to check for type.
+fn archive_type(archive: &std::path::PathBuf) -> Result<ArchiveType, &'static str> {
+    let archive_file = File::open(archive).unwrap();
+    let f = BufReader::new(archive_file);
+    for byte in f.bytes() {
+        print!("{:#04x} ", byte.unwrap())
+    }
+    println!();
+    // let buf = vec![];
+    // archive_file.read(&buf);
+    Ok(ArchiveType::Zip)
+}
+
+#[derive(Debug, PartialEq)]
 enum ArchiveType {
     Zip,
     Rar,
@@ -14,6 +33,12 @@ enum ArchiveType {
     TarXz,
     TarCompress,
     TarZstd,
+}
+
+impl fmt::Display for ArchiveType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 fn expand_home(archive: String) -> Result<String, &'static str> {
@@ -84,7 +109,7 @@ pub fn unarchive(mut archive: String) -> Result<(), &'static str> {
         Ok(path) => path,
         Err(_) => return Err("archive does not exist"),
     };
-    let archive_type = archive_type(archive.clone())?;
+    let archive_type = archive_type(&archive)?;
 
     let current_dir = match std::env::current_dir() {
         Ok(path) => path,
@@ -125,69 +150,229 @@ pub fn unarchive(mut archive: String) -> Result<(), &'static str> {
     }
 }
 
-fn archive_type(archive: std::path::PathBuf) -> Result<ArchiveType, &'static str> {
-    let extension = archive.extension();
+///Gets all the file extensions of a file
+// fn file_extensions(file: std::path::PathBuf) -> Result<Vec<&'static str>, &'static str> {
+//     let extensions: Vec<&str> = Vec::new();
+//
+//     loop {
+//         let extension = file.extension();
+//         let stem = file.file_stem();
+//         if extension.is_some() {
+//             extensions.push(extension.unwrap().to_str());
+//         }
+//         break;
+//     }
+//     let extension = file.extension();
+//     let stem = file.file_stem();
+//     return Ok(extensions);
+// }
 
-    let second_ext = match archive.file_stem() {
-        None => return Err("Invalid archive name"),
-        Some(basename) => std::path::PathBuf::from(basename),
-    };
+// fn archive_type(archive: std::path::PathBuf) -> Result<ArchiveType, &'static str> {
+//     // if !valid_filename(archive) {
+//     //     return Err(format!(
+//     //         "Invalid filename for archive: {}",
+//     //         archive.to_string_lossy()
+//     //     ));
+//     // }
+//     let extension = archive.extension();
+//
+//     let stem = match archive.file_stem() {
+//         None => return Err("Invalid archive name"),
+//         Some(basename) => std::path::PathBuf::from(basename),
+//     };
+//
+//     match extension {
+//         None => Err("No extension found for path"),
+//         Some(first_ext) => match first_ext.to_str() {
+//             Some("zip") | Some("zipx") | Some("ZIP") => Ok(ArchiveType::Zip),
+//             Some("rar") => Ok(ArchiveType::Rar),
+//             Some("7z") => Ok(ArchiveType::SevenZip),
+//             Some("tar") => Ok(ArchiveType::Tar),
+//             Some("tb2") | Some("tbz") | Some("tbz2") | Some("tz2") => Ok(ArchiveType::TarBzip2),
+//             Some("bz2") => match stem.to_str() {
+//                 Some("tar") => Ok(ArchiveType::TarBzip2),
+//                 Some(&_) => Err("Invalid archive type for `bzip2` compressed data"),
+//                 None => Err("Could not determine archive type for `bzip2` compressed data"),
+//             },
+//             Some("tgz") | Some("taz") => Ok(ArchiveType::TarGzip),
+//             Some("gz") => match stem.to_str() {
+//                 Some("tar") => Ok(ArchiveType::TarGzip),
+//                 Some(&_) => Err("Invalid archive type for `gzip` compressed data"),
+//                 None => Err("Could not determine archive type for `gzip` compressed data"),
+//             },
+//             Some("lz") => match second_ext.to_str() {
+//                 Some("tar") => Ok(ArchiveType::TarLzip),
+//                 Some(&_) => Err("Invalid archive type for `lzip` compressed data"),
+//                 None => Err("Could not determine archive type for `lzip` compressed data"),
+//             },
+//             Some("tlz") => Ok(ArchiveType::TarLzma),
+//             Some("lzma") => match second_ext.to_str() {
+//                 Some("tar") => Ok(ArchiveType::TarLzma),
+//                 Some(&_) => Err("Invalid archive type for `lzma` compressed data"),
+//                 None => Err("Could not determine archive type for `lzma` compressed data"),
+//             },
+//             Some("lzo") => match second_ext.to_str() {
+//                 Some("tar") => Ok(ArchiveType::TarLzop),
+//                 Some(&_) => Err("Invalid archive type for `lzop` compressed data"),
+//                 None => Err("Could not determine archive type for `lzop` compressed data"),
+//             },
+//             Some("txz") => Ok(ArchiveType::TarXz),
+//             Some("xz") => match second_ext.to_str() {
+//                 Some("tar") => Ok(ArchiveType::TarXz),
+//                 Some(&_) => Err("Invalid archive type for `xz` compressed data"),
+//                 None => Err("Could not determine archive type for `xz` compressed data"),
+//             },
+//             Some("tZ") | Some("taZ") => Ok(ArchiveType::TarCompress),
+//             Some("Z") => match second_ext.to_str() {
+//                 Some("tar") => Ok(ArchiveType::TarCompress),
+//                 Some(&_) => Err("Invalid archive type for `Compress` compressed data"),
+//                 None => Err("Could not determine archive type for `Compress` compressed data"),
+//             },
+//             Some("tzst") => Ok(ArchiveType::TarZstd),
+//             Some("zst") => match second_ext.to_str() {
+//                 Some("tar") => Ok(ArchiveType::TarZstd),
+//                 Some(&_) => Err("Invalid archive type for `zstd` compressed data"),
+//                 None => Err("Could not determine archive type for `zstd` compressed data"),
+//             },
+//             Some(&_) => Err("Unknown archive extension"),
+//             None => Err("Invalid archive string"),
+//         },
+//     }
+// }
 
-    match extension {
-        None => Err("No extension found for path"),
-        Some(first_ext) => match first_ext.to_str() {
-            Some("zip") | Some("zipx") | Some("ZIP") => Ok(ArchiveType::Zip),
-            Some("rar") => Ok(ArchiveType::Rar),
-            Some("7z") => Ok(ArchiveType::SevenZip),
-            Some("tar") => Ok(ArchiveType::Tar),
-            Some("tb2") | Some("tbz") | Some("tbz2") | Some("tz2") => Ok(ArchiveType::TarBzip2),
-            Some("bz2") => match second_ext.to_str() {
-                Some("tar") => Ok(ArchiveType::TarBzip2),
-                Some(&_) => Err("Invalid archive type for `bzip2` compressed data"),
-                None => Err("Could not determine archive type for `bzip2` compressed data"),
-            },
-            Some("tgz") | Some("taz") => Ok(ArchiveType::TarGzip),
-            Some("gz") => match second_ext.to_str() {
-                Some("tar") => Ok(ArchiveType::TarGzip),
-                Some(&_) => Err("Invalid archive type for `gzip` compressed data"),
-                None => Err("Could not determine archive type for `gzip` compressed data"),
-            },
-            Some("lz") => match second_ext.to_str() {
-                Some("tar") => Ok(ArchiveType::TarLzip),
-                Some(&_) => Err("Invalid archive type for `lzip` compressed data"),
-                None => Err("Could not determine archive type for `lzip` compressed data"),
-            },
-            Some("tlz") => Ok(ArchiveType::TarLzma),
-            Some("lzma") => match second_ext.to_str() {
-                Some("tar") => Ok(ArchiveType::TarLzma),
-                Some(&_) => Err("Invalid archive type for `lzma` compressed data"),
-                None => Err("Could not determine archive type for `lzma` compressed data"),
-            },
-            Some("lzo") => match second_ext.to_str() {
-                Some("tar") => Ok(ArchiveType::TarLzop),
-                Some(&_) => Err("Invalid archive type for `lzop` compressed data"),
-                None => Err("Could not determine archive type for `lzop` compressed data"),
-            },
-            Some("txz") => Ok(ArchiveType::TarXz),
-            Some("xz") => match second_ext.to_str() {
-                Some("tar") => Ok(ArchiveType::TarXz),
-                Some(&_) => Err("Invalid archive type for `xz` compressed data"),
-                None => Err("Could not determine archive type for `xz` compressed data"),
-            },
-            Some("tZ") | Some("taZ") => Ok(ArchiveType::TarCompress),
-            Some("Z") => match second_ext.to_str() {
-                Some("tar") => Ok(ArchiveType::TarCompress),
-                Some(&_) => Err("Invalid archive type for `Compress` compressed data"),
-                None => Err("Could not determine archive type for `Compress` compressed data"),
-            },
-            Some("tzst") => Ok(ArchiveType::TarZstd),
-            Some("zst") => match second_ext.to_str() {
-                Some("tar") => Ok(ArchiveType::TarZstd),
-                Some(&_) => Err("Invalid archive type for `zstd` compressed data"),
-                None => Err("Could not determine archive type for `zstd` compressed data"),
-            },
-            Some(&_) => Err("Unknown archive extension"),
-            None => Err("Invalid archive string"),
-        },
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+
+    #[test]
+    fn archive_types() {
+        // let extensions: [(&'static str, ArchiveType); 19] = [
+        //     ("test.tar", ArchiveType::Tar),
+        //     ("test.tb2", ArchiveType::TarBzip2),
+        //     ("test.tbz", ArchiveType::TarBzip2),
+        //     ("test.tbz2", ArchiveType::TarBzip2),
+        //     ("test.tz2", ArchiveType::TarBzip2),
+        //     ("test.tar.bz2", ArchiveType::TarBzip2),
+        //     ("test.tgz", ArchiveType::TarGzip),
+        //     ("test.taz", ArchiveType::TarGzip),
+        //     ("test.tar.gz", ArchiveType::TarGzip),
+        //     ("test.tar.lz", ArchiveType::TarLzip),
+        //     ("test.tlz", ArchiveType::TarLzma),
+        //     ("test.tar.lzma", ArchiveType::TarLzma),
+        //     ("test.tar.lzo", ArchiveType::TarLzop),
+        //     ("test.txz", ArchiveType::TarXz),
+        //     ("test.tar.xz", ArchiveType::TarXz),
+        //     ("test.tZ", ArchiveType::TarCompress),
+        //     ("test.tar.Z", ArchiveType::TarCompress),
+        //     ("test.tzst", ArchiveType::TarZstd),
+        //     ("test.tar.zst", ArchiveType::TarZstd),
+        // ];
+        let extensions: [(String, ArchiveType); 1] = [("test.zip".to_owned(), ArchiveType::Zip)];
+
+        for (name, expected_type) in extensions {
+            let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            root.push(format!("resources/{name}"));
+            let archive_file = std::path::PathBuf::from(&root);
+
+            // println!("{}", archive_file.to_str().unwrap());
+            let result = archive_type(&archive_file);
+            assert!(result.is_ok(), "archive {} was not a valid name", name);
+            let unwrapped = result.unwrap();
+            assert_eq!(
+                expected_type, unwrapped,
+                "expected type={}, got={}",
+                expected_type, unwrapped
+            );
+        }
+        //     let result = archive_type(std::path::PathBuf::from(name));
+        //     assert!(result.is_ok(), "archive {} was not a valid name", name);
+        //     let unwrapped = result.unwrap();
+        //     assert_eq!(
+        //         expected_type, unwrapped,
+        //         "expected type={}, got={}",
+        //         expected_type, unwrapped
+        //     );
     }
+
+    // #[test]
+    // fn file_extensions() {
+    //     let extensions = super::file_extensions(std::path::PathBuf::from("test.tar.gz"));
+    //     let expected: Vec<&str> = Vec::from(["gz", "tar"]);
+    //     assert!(extensions.is_ok());
+    //     let extensions = extensions.unwrap();
+    //     let matching = extensions
+    //         .iter()
+    //         .zip(&expected)
+    //         .filter(|&(extensions, expected)| extensions == expected)
+    //         .count();
+    //
+    //     assert!(matching == extensions.len() && matching == expected.len())
+    // }
+    //
+    // #[test]
+    // fn zip_extensions() {
+    //     let mut result = archive_type(std::path::PathBuf::from("test.zip"));
+    //     assert!(result.is_ok());
+    //     assert_eq!(ArchiveType::Zip, result.unwrap());
+    //
+    //     result = archive_type(std::path::PathBuf::from("test.zipx"));
+    //     assert!(result.is_ok());
+    //     assert_eq!(ArchiveType::Zip, result.unwrap());
+    //
+    //     result = archive_type(std::path::PathBuf::from("test.ZIP"));
+    //     assert!(result.is_ok());
+    //     assert_eq!(ArchiveType::Zip, result.unwrap());
+    // }
+    //
+    // #[test]
+    // fn rar_extensions() {
+    //     let result = archive_type(std::path::PathBuf::from("test.rar"));
+    //     assert!(result.is_ok());
+    //     assert_eq!(ArchiveType::Rar, result.unwrap());
+    // }
+    //
+    // #[test]
+    // fn sevenzip_extensions() {
+    //     let result = archive_type(std::path::PathBuf::from("test.7z"));
+    //     assert!(result.is_ok());
+    //     assert_eq!(ArchiveType::SevenZip, result.unwrap());
+    // }
+    //
+    // #[test]
+    // fn tar_extensions() {
+    //     let extensions = [
+    //         ("test.tar", ArchiveType::Tar),
+    //         ("test.tb2", ArchiveType::TarBzip2),
+    //         ("test.tbz", ArchiveType::TarBzip2),
+    //         ("test.tbz2", ArchiveType::TarBzip2),
+    //         ("test.tz2", ArchiveType::TarBzip2),
+    //         ("test.tar.bz2", ArchiveType::TarBzip2),
+    //         ("test.tgz", ArchiveType::TarGzip),
+    //         ("test.taz", ArchiveType::TarGzip),
+    //         ("test.tar.gz", ArchiveType::TarGzip),
+    //         ("test.tar.lz", ArchiveType::TarLzip),
+    //         ("test.tlz", ArchiveType::TarLzma),
+    //         ("test.tar.lzma", ArchiveType::TarLzma),
+    //         ("test.tar.lzo", ArchiveType::TarLzop),
+    //         ("test.txz", ArchiveType::TarXz),
+    //         ("test.tar.xz", ArchiveType::TarXz),
+    //         ("test.tZ", ArchiveType::TarCompress),
+    //         ("test.tar.Z", ArchiveType::TarCompress),
+    //         ("test.tzst", ArchiveType::TarZstd),
+    //         ("test.tar.zst", ArchiveType::TarZstd),
+    //     ];
+    //
+    //     for (name, expected_type) in extensions {
+    //         let result = archive_type(std::path::PathBuf::from(name));
+    //         assert!(result.is_ok(), "archive {} was not a valid name", name);
+    //         let unwrapped = result.unwrap();
+    //         assert_eq!(
+    //             expected_type, unwrapped,
+    //             "expected type={}, got={}",
+    //             expected_type, unwrapped
+    //         );
+    //     }
+    // }
 }

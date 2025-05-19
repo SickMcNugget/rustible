@@ -1,9 +1,9 @@
-pub mod modules;
+mod modules;
 
 use clap::Parser;
 // use std::fmt;
 // use std::env;
-use std::process::Command;
+// use std::process::Command;
 // use std::vec::Vec;
 // use yaml_rust::{YamlEmitter, YamlLoader};
 
@@ -13,8 +13,17 @@ struct Cli {
 }
 
 fn main() {
-    modules::archive::unarchive("~/test/test.7z".to_string()).expect("Failed to extract archive");
-    modules::git::clone_repo()
+    // modules::archive::unarchive("~/test/test.7z".to_string()).expect("Failed to extract archive");
+    for thing in &[
+        "zip", "rar", "7z", "tar", "tar.bz2", "tar.gz", "tar.lz", "tar.lzma", "tar.lzo", "tar.xz",
+        "tar.Z", "tar.zst",
+    ] {
+        let filename = format!("/home/joren/code/rust/rustible/resources/test.{}", thing);
+        println!("{filename}");
+        let archive_type = modules::read::archive_magic(filename);
+        println!("{archive_type:?}");
+    }
+    // modules::git::clone_repo()
     // let args = Cli::parse();
     //
     // println!("playbook: {:?}", args.playbook);
