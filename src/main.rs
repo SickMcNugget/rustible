@@ -1,4 +1,4 @@
-mod modules;
+use rustible::modules;
 
 use clap::Parser;
 // use std::fmt;
@@ -12,52 +12,8 @@ struct Cli {
     playbook: std::path::PathBuf,
 }
 
-fn main() {
-    // modules::archive::unarchive("~/test/test.7z".to_string()).expect("Failed to extract archive");
-    for thing in &[
-        "zip", "rar", "7z", "tar", "tar.bz2", "tar.gz", "tar.lz", "tar.lzma", "tar.lzo", "tar.xz",
-        "tar.Z", "tar.zst",
-    ] {
-        let filename = format!("/home/joren/code/rust/rustible/resources/test.{}", thing);
-        println!("{filename}");
-        let archive_type = modules::read::archive_magic(filename);
-        println!("{archive_type:?}");
-    }
-    // modules::git::clone_repo()
-    // let args = Cli::parse();
-    //
-    // println!("playbook: {:?}", args.playbook);
-    // let yamlfile_str = std::fs::read_to_string(&args.playbook).unwrap();
-    // let yaml = YamlLoader::load_from_str(yamlfile_str.as_str()).unwrap();
-    // let playbook = &yaml[0];
-    // let play = playbook[0];
-    // let play_name = play["name"];
-    // let play_hosts = play["hosts"];
-    // let play_remote_usr = play["remote_usr"];
-    //
-    // let tasks = play["tasks"];
-    // let task = tasks[0];
-    // let task_name = task["name"];
-    // let module = task["rustible.builtin.git"];
-    // let module_repo = module["repo"];
-    // let module_dest = module["dest"];
-    // let module_version = module["version"];
-
-    // let mut out_str = String::new();
-    // {
-    //     let mut emitter = YamlEmitter::new(&mut out_str);
-    //     emitter.dump(playbook).unwrap();
-    // }
-    //
-    // println!("{}", out_str)
-
-    // println!("{:?}", goodyaml);
-    //     .expect("`args.playbook` should correspond to a valid yaml file");
-    // for line in yml.lines() {
-    //     println!("{}", line);
-    // }
-    // let _playbook = parse_playbook(args.playbook);
-    // clone_repo()
+fn main() -> modules::Result<()> {
+    Ok(())
 }
 
 // struct Task {
