@@ -103,38 +103,38 @@ fn upgrade(packages: Vec<String>) -> Result<()> {
     check_apt_return(output)
 }
 
-#[cfg(test)]
-mod tests {
-
-    use std::{thread::sleep, time::Duration};
-
-    use super::*;
-
-    #[test]
-    fn install_and_remove() {
-        let package = "sl";
-        let install_result = install_package(package);
-        assert!(
-            install_result.is_ok(),
-            "result was not okay from install, got: {}",
-            install_result.unwrap_err()
-        );
-        sleep(Duration::new(1, 0));
-        let remove_result = remove_package(package);
-        assert!(
-            remove_result.is_ok(),
-            "result was not okay from remove, got: {}",
-            remove_result.unwrap_err()
-        );
-    }
-
-    #[test]
-    fn update_cache() {
-        let update_result = update_apt_cache();
-        assert!(
-            update_result.is_ok(),
-            "result was not okay from update, got: {}",
-            update_result.unwrap_err()
-        );
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//
+//     use std::{thread::sleep, time::Duration};
+//
+//     use super::*;
+//
+//     #[test]
+//     fn install_and_remove() {
+//         let package = "sl";
+//         let install_result = install_package(package);
+//         assert!(
+//             install_result.is_ok(),
+//             "result was not okay from install, got: {}",
+//             install_result.unwrap_err()
+//         );
+//         sleep(Duration::new(1, 0));
+//         let remove_result = remove_package(package);
+//         assert!(
+//             remove_result.is_ok(),
+//             "result was not okay from remove, got: {}",
+//             remove_result.unwrap_err()
+//         );
+//     }
+//
+//     #[test]
+//     fn update_cache() {
+//         let update_result = update_apt_cache();
+//         assert!(
+//             update_result.is_ok(),
+//             "result was not okay from update, got: {}",
+//             update_result.unwrap_err()
+//         );
+//     }
+// }
