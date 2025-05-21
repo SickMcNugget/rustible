@@ -1,26 +1,49 @@
-use std::env;
+use expanduser::expanduser;
+
+use super::{ModuleError, Result};
 use std::fmt;
 use std::fs::File;
-use std::io::BufReader;
 use std::io::Read;
-// use std::io;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-// FK it, just use the magic bytes at the beginning of the files to check for type.
-fn archive_type(archive: &std::path::PathBuf) -> Result<ArchiveType, &'static str> {
-    let archive_file = File::open(archive).unwrap();
-    let f = BufReader::new(archive_file);
-    for byte in f.bytes() {
-        print!("{:#04x} ", byte.unwrap())
-    }
-    println!();
-    // let buf = vec![];
-    // archive_file.read(&buf);
-    Ok(ArchiveType::Zip)
-}
+// consists of ArchiveType, magic, and offset of magic
+const MAGIC: &[(ArchiveType, &[u8], usize)] = &[
+    // 50 4B 03 04
+    // 50 4B 05 06 (empty)
+    // 50 4B 07 08 (spanned?)
+    (ArchiveType::Zip, b"PK", 0),
+    // 52 61 72 21 1A 07 00
+    // 52 61 72 21 1A 07 01 00
+    (ArchiveType::Rar, b"Rar!", 0),
+    // 37 7A BC AF 27 1C
+    (ArchiveType::SevenZip, b"7z", 0),
+    // 75 73 74 61 72 00 30 30
+    // 75 73 74 61 72 20 20 00
+    (ArchiveType::Tar, b"ustar", 257),
+    // 42 5A 68
+    (ArchiveType::TarBzip2, b"BZh", 0),
+    // 1F 8B
+    (ArchiveType::TarGzip, &[0x1f, 0x8B], 0),
+    // 4C 5A 49 50
+    (ArchiveType::TarLzip, b"LZIP", 0),
+    // 89 4c 5a 4f 00 0d 0a 1a 0a
+    (
+        ArchiveType::TarLzop,
+        &[0x89, 0x4c, 0x5a, 0x4f, 0x00, 0x0d, 0x0a, 0x1a, 0x0a],
+        0,
+    ),
+    // FD 37 7A 58 5A 00
+    (ArchiveType::TarXz, &[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00], 0),
+    // 1F 9D
+    // 1F A0
+    (ArchiveType::TarCompress, &[0x1F, 0x9D], 0),
+    // 28 b5 2f fd
+    (ArchiveType::TarZstd, &[0x28, 0xb5, 0x2f, 0xfd], 0),
+];
 
-#[derive(Debug, PartialEq)]
-enum ArchiveType {
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum ArchiveType {
     Zip,
     Rar,
     SevenZip,
@@ -28,11 +51,84 @@ enum ArchiveType {
     TarBzip2,
     TarGzip,
     TarLzip,
-    TarLzma,
     TarLzop,
     TarXz,
     TarCompress,
     TarZstd,
+}
+
+impl ArchiveType {
+    fn match_extension(filepath: &Path) -> Result<Self> {
+        // Since there can be multiple extensions, like
+        // .tar.gz, it's easier to match against the full filename,
+        // excluding everything before the first '.'
+        let extension = filepath
+            .file_name()
+            .expect("Filename somehow ended with '..'")
+            .to_str()
+            .expect("Filename contained invalid UTF-8")
+            .split_once(".")
+            .expect("Filename does not have an extension")
+            .1;
+
+        match extension {
+            "zip" => Ok(Self::Zip),
+            "rar" => Ok(Self::Rar),
+            "7z" => Ok(Self::SevenZip),
+            "tar" => Ok(Self::Tar),
+            "tar.bz2" => Ok(Self::TarBzip2),
+            "tar.gz" => Ok(Self::TarGzip),
+            "tar.lz" => Ok(Self::TarLzip),
+            "tar.lzo" => Ok(Self::TarLzop),
+            "tar.xz" => Ok(Self::TarXz),
+            "tar.Z" => Ok(Self::TarCompress),
+            "tar.zst" => Ok(Self::TarZstd),
+            _ => Err(ModuleError::PlainMessage(format!(
+                "Unknown archive file extension: {extension}"
+            ))),
+        }
+    }
+}
+
+fn archive_magic(filepath: &Path) -> Result<ArchiveType> {
+    let bytes_to_read = MAGIC
+        .iter()
+        .map(|(_, magic, offset)| magic.len() + offset)
+        .max()
+        .unwrap_or_default();
+
+    let mut buffer = vec![0u8; bytes_to_read];
+    let n_read = File::open(filepath)?.read(&mut buffer)?;
+
+    for (archive_type, magic, offset) in MAGIC {
+        if n_read >= (magic.len() + offset)
+            && &buffer[*offset..(magic.len() + offset)] == *magic
+        {
+            return Ok(archive_type.clone());
+        }
+    }
+
+    Err(ModuleError::PlainMessage(format!(
+        "Unable to determine archive type of {}",
+        filepath.display()
+    )))
+}
+
+pub fn determine_archive_type(filename: &str) -> Result<ArchiveType> {
+    let filepath = expanduser(filename)?.canonicalize()?;
+    if !filepath.is_file() {
+        return Err(ModuleError::PlainMessage(format!(
+            "{} is not a file",
+            filepath.display()
+        )));
+    }
+
+    let archive_type = ArchiveType::match_extension(&filepath);
+    if archive_type.is_ok() {
+        archive_type
+    } else {
+        archive_magic(&filepath)
+    }
 }
 
 impl fmt::Display for ArchiveType {
@@ -41,130 +137,116 @@ impl fmt::Display for ArchiveType {
     }
 }
 
-fn expand_home(archive: String) -> Result<String, &'static str> {
-    match env::var("HOME") {
-        Ok(home) => Ok(archive.replacen("~", home.as_str(), 1)),
-        Err(_) => Err("HOME environment variable not found"),
-    }
-}
+// pub fn unarchive()
 
-fn unzip(archive: std::path::PathBuf) -> Result<(), &'static str> {
-    let status = Command::new("unzip").arg(archive).status();
-    let status = match status {
-        Ok(ret) => ret,
-        Err(_) => return Err("Failed to execute `unzip` command"),
-    };
-
-    if !status.success() {
-        return Err("Unable to run `unzip` on archive");
-    }
-
-    Ok(())
-}
-fn unrar(archive: std::path::PathBuf) -> Result<(), &'static str> {
-    let status = { Command::new("rar").arg("e").arg(archive).status() };
-    let status = match status {
-        Ok(ret) => ret,
-        Err(_) => return Err("Failed to execute `rar` command"),
-    };
-
-    if !status.success() {
-        return Err("Unable to run `rar` on archive");
-    }
-
-    Ok(())
-}
-fn un7z(archive: std::path::PathBuf) -> Result<(), &'static str> {
-    let status = { Command::new("7z").arg("e").arg(archive).status() };
-    let status = match status {
-        Ok(ret) => ret,
-        Err(_) => return Err("Failed to execute `7z` command"),
-    };
-
-    if !status.success() {
-        return Err("Unable to run `7z` on archive");
-    }
-
-    Ok(())
-}
-fn untar(archive: std::path::PathBuf) -> Result<(), &'static str> {
-    let status = { Command::new("tar").arg("-xf").arg(archive).status() };
-    let status = match status {
-        Ok(ret) => ret,
-        Err(_) => return Err("Failed to execute `tar` command"),
-    };
-
-    if !status.success() {
-        return Err("Unable to run `tar` on archive");
-    }
-
-    Ok(())
-}
-
-pub fn unarchive(mut archive: String) -> Result<(), &'static str> {
-    archive = expand_home(archive)?;
-    let archive = std::path::PathBuf::from(archive);
-    println!("{:?}", archive);
-    let archive = match archive.canonicalize() {
-        Ok(path) => path,
-        Err(_) => return Err("archive does not exist"),
-    };
-    let archive_type = archive_type(&archive)?;
-
-    let current_dir = match std::env::current_dir() {
-        Ok(path) => path,
-        Err(_) => return Err("Could not determine the current directory"),
-    };
-
-    let archive_dir = match archive.parent() {
-        Some(dir) => dir,
-        None => return Err("Could not determine the parent directory of the archive"),
-    };
-
-    if std::env::set_current_dir(archive_dir).is_err() {
-        return Err("Unable to change to the archive directory");
-    };
-
-    let result = match archive_type {
-        ArchiveType::Zip => unzip(archive),
-        ArchiveType::Rar => unrar(archive),
-        ArchiveType::SevenZip => un7z(archive),
-        ArchiveType::Tar
-        | ArchiveType::TarBzip2
-        | ArchiveType::TarGzip
-        | ArchiveType::TarLzip
-        | ArchiveType::TarLzma
-        | ArchiveType::TarLzop
-        | ArchiveType::TarXz
-        | ArchiveType::TarCompress
-        | ArchiveType::TarZstd => untar(archive),
-    };
-
-    if result.is_err() {
-        return Err(result.unwrap_err());
-    }
-
-    match std::env::set_current_dir(current_dir) {
-        Ok(_) => Ok(()),
-        Err(_) => Err("Unable to return to the starting directory"),
-    }
-}
-
-///Gets all the file extensions of a file
-// fn file_extensions(file: std::path::PathBuf) -> Result<Vec<&'static str>, &'static str> {
-//     let extensions: Vec<&str> = Vec::new();
-//
-//     loop {
-//         let extension = file.extension();
-//         let stem = file.file_stem();
-//         if extension.is_some() {
-//             extensions.push(extension.unwrap().to_str());
-//         }
-//         break;
+// fn expand_home(archive: &mut String) -> Result<String, &'static str> {
+//     match env::var("HOME") {
+//         Ok(home) => Ok(archive.replacen("~", home.as_str(), 1)),
+//         Err(_) => Err("HOME environment variable not found"),
 //     }
-//     let extension = file.extension();
-//     let stem = file.file_stem();
-//     return Ok(extensions);
+// }
+
+// fn unzip(archive: std::path::PathBuf) -> Result<(), &'static str> {
+//     let status = Command::new("unzip").arg(archive).status();
+//     let status = match status {
+//         Ok(ret) => ret,
+//         Err(_) => return Err("Failed to execute `unzip` command"),
+//     };
+//
+//     if !status.success() {
+//         return Err("Unable to run `unzip` on archive");
+//     }
+//
+//     Ok(())
+// }
+// fn unrar(archive: std::path::PathBuf) -> Result<(), &'static str> {
+//     let status = { Command::new("rar").arg("e").arg(archive).status() };
+//     let status = match status {
+//         Ok(ret) => ret,
+//         Err(_) => return Err("Failed to execute `rar` command"),
+//     };
+//
+//     if !status.success() {
+//         return Err("Unable to run `rar` on archive");
+//     }
+//
+//     Ok(())
+// }
+// fn un7z(archive: std::path::PathBuf) -> Result<(), &'static str> {
+//     let status = { Command::new("7z").arg("e").arg(archive).status() };
+//     let status = match status {
+//         Ok(ret) => ret,
+//         Err(_) => return Err("Failed to execute `7z` command"),
+//     };
+//
+//     if !status.success() {
+//         return Err("Unable to run `7z` on archive");
+//     }
+//
+//     Ok(())
+// }
+// fn untar(archive: std::path::PathBuf) -> Result<(), &'static str> {
+//     let status = { Command::new("tar").arg("-xf").arg(archive).status() };
+//     let status = match status {
+//         Ok(ret) => ret,
+//         Err(_) => return Err("Failed to execute `tar` command"),
+//     };
+//
+//     if !status.success() {
+//         return Err("Unable to run `tar` on archive");
+//     }
+//
+//     Ok(())
+// }
+//
+
+// pub fn unarchive(archive: &mut String) -> Result<(), &'static str> {
+//     archive = expand_home(archive)?;
+//     let archive = std::path::PathBuf::from(archive);
+//     println!("{:?}", archive);
+//     let archive = match archive.canonicalize() {
+//         Ok(path) => path,
+//         Err(_) => return Err("archive does not exist"),
+//     };
+//     let archive_type = archive_type(&archive)?;
+//
+//     let current_dir = match std::env::current_dir() {
+//         Ok(path) => path,
+//         Err(_) => return Err("Could not determine the current directory"),
+//     };
+//
+//     let archive_dir = match archive.parent() {
+//         Some(dir) => dir,
+//         None => return Err("Could not determine the parent directory of the archive"),
+//     };
+//
+//     if std::env::set_current_dir(archive_dir).is_err() {
+//         return Err("Unable to change to the archive directory");
+//     };
+//
+//     let result = match archive_type {
+//         ArchiveType::Zip => unzip(archive),
+//         ArchiveType::Rar => unrar(archive),
+//         ArchiveType::SevenZip => un7z(archive),
+//         ArchiveType::Tar
+//         | ArchiveType::TarBzip2
+//         | ArchiveType::TarGzip
+//         | ArchiveType::TarLzip
+//         | ArchiveType::TarLzma
+//         | ArchiveType::TarLzop
+//         | ArchiveType::TarXz
+//         | ArchiveType::TarCompress
+//         | ArchiveType::TarZstd => untar(archive),
+//     };
+//
+//     if result.is_err() {
+//         return Err(result.unwrap_err());
+//     }
+//
+//     match std::env::set_current_dir(current_dir) {
+//         Ok(_) => Ok(()),
+//         Err(_) => Err("Unable to return to the starting directory"),
+//     }
 // }
 
 // fn archive_type(archive: std::path::PathBuf) -> Result<ArchiveType, &'static str> {
@@ -242,137 +324,62 @@ pub fn unarchive(mut archive: String) -> Result<(), &'static str> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
 
+    const TESTTABLE: &[(&str, ArchiveType)] = &[
+        ("zip", ArchiveType::Zip),
+        ("rar", ArchiveType::Rar),
+        ("7z", ArchiveType::SevenZip),
+        ("tar", ArchiveType::Tar),
+        ("tar.bz2", ArchiveType::TarBzip2),
+        ("tar.gz", ArchiveType::TarGzip),
+        ("tar.lz", ArchiveType::TarLzip),
+        ("tar.lzo", ArchiveType::TarLzop),
+        ("tar.xz", ArchiveType::TarXz),
+        ("tar.zst", ArchiveType::TarZstd),
+        ("tar.Z", ArchiveType::TarCompress),
+    ];
+
     #[test]
-    fn archive_types() {
-        // let extensions: [(&'static str, ArchiveType); 19] = [
-        //     ("test.tar", ArchiveType::Tar),
-        //     ("test.tb2", ArchiveType::TarBzip2),
-        //     ("test.tbz", ArchiveType::TarBzip2),
-        //     ("test.tbz2", ArchiveType::TarBzip2),
-        //     ("test.tz2", ArchiveType::TarBzip2),
-        //     ("test.tar.bz2", ArchiveType::TarBzip2),
-        //     ("test.tgz", ArchiveType::TarGzip),
-        //     ("test.taz", ArchiveType::TarGzip),
-        //     ("test.tar.gz", ArchiveType::TarGzip),
-        //     ("test.tar.lz", ArchiveType::TarLzip),
-        //     ("test.tlz", ArchiveType::TarLzma),
-        //     ("test.tar.lzma", ArchiveType::TarLzma),
-        //     ("test.tar.lzo", ArchiveType::TarLzop),
-        //     ("test.txz", ArchiveType::TarXz),
-        //     ("test.tar.xz", ArchiveType::TarXz),
-        //     ("test.tZ", ArchiveType::TarCompress),
-        //     ("test.tar.Z", ArchiveType::TarCompress),
-        //     ("test.tzst", ArchiveType::TarZstd),
-        //     ("test.tar.zst", ArchiveType::TarZstd),
-        // ];
-        let extensions: [(String, ArchiveType); 1] = [("test.zip".to_owned(), ArchiveType::Zip)];
-
-        for (name, expected_type) in extensions {
-            let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            root.push(format!("resources/{name}"));
-            let archive_file = std::path::PathBuf::from(&root);
-
-            // println!("{}", archive_file.to_str().unwrap());
-            let result = archive_type(&archive_file);
-            assert!(result.is_ok(), "archive {} was not a valid name", name);
-            let unwrapped = result.unwrap();
-            assert_eq!(
-                expected_type, unwrapped,
-                "expected type={}, got={}",
-                expected_type, unwrapped
+    fn archive_magic() {
+        for (ext, archive_type) in TESTTABLE {
+            let filepath = PathBuf::from(format!("resources/test.{ext}"));
+            let result = super::archive_magic(filepath.as_path());
+            assert!(
+                result.is_ok(),
+                "{} did not match magic",
+                filepath.display()
             );
+            let result = result.unwrap();
+            assert_eq!(result, *archive_type);
         }
-        //     let result = archive_type(std::path::PathBuf::from(name));
-        //     assert!(result.is_ok(), "archive {} was not a valid name", name);
-        //     let unwrapped = result.unwrap();
-        //     assert_eq!(
-        //         expected_type, unwrapped,
-        //         "expected type={}, got={}",
-        //         expected_type, unwrapped
-        //     );
     }
 
-    // #[test]
-    // fn file_extensions() {
-    //     let extensions = super::file_extensions(std::path::PathBuf::from("test.tar.gz"));
-    //     let expected: Vec<&str> = Vec::from(["gz", "tar"]);
-    //     assert!(extensions.is_ok());
-    //     let extensions = extensions.unwrap();
-    //     let matching = extensions
-    //         .iter()
-    //         .zip(&expected)
-    //         .filter(|&(extensions, expected)| extensions == expected)
-    //         .count();
-    //
-    //     assert!(matching == extensions.len() && matching == expected.len())
-    // }
-    //
-    // #[test]
-    // fn zip_extensions() {
-    //     let mut result = archive_type(std::path::PathBuf::from("test.zip"));
-    //     assert!(result.is_ok());
-    //     assert_eq!(ArchiveType::Zip, result.unwrap());
-    //
-    //     result = archive_type(std::path::PathBuf::from("test.zipx"));
-    //     assert!(result.is_ok());
-    //     assert_eq!(ArchiveType::Zip, result.unwrap());
-    //
-    //     result = archive_type(std::path::PathBuf::from("test.ZIP"));
-    //     assert!(result.is_ok());
-    //     assert_eq!(ArchiveType::Zip, result.unwrap());
-    // }
-    //
-    // #[test]
-    // fn rar_extensions() {
-    //     let result = archive_type(std::path::PathBuf::from("test.rar"));
-    //     assert!(result.is_ok());
-    //     assert_eq!(ArchiveType::Rar, result.unwrap());
-    // }
-    //
-    // #[test]
-    // fn sevenzip_extensions() {
-    //     let result = archive_type(std::path::PathBuf::from("test.7z"));
-    //     assert!(result.is_ok());
-    //     assert_eq!(ArchiveType::SevenZip, result.unwrap());
-    // }
-    //
-    // #[test]
-    // fn tar_extensions() {
-    //     let extensions = [
-    //         ("test.tar", ArchiveType::Tar),
-    //         ("test.tb2", ArchiveType::TarBzip2),
-    //         ("test.tbz", ArchiveType::TarBzip2),
-    //         ("test.tbz2", ArchiveType::TarBzip2),
-    //         ("test.tz2", ArchiveType::TarBzip2),
-    //         ("test.tar.bz2", ArchiveType::TarBzip2),
-    //         ("test.tgz", ArchiveType::TarGzip),
-    //         ("test.taz", ArchiveType::TarGzip),
-    //         ("test.tar.gz", ArchiveType::TarGzip),
-    //         ("test.tar.lz", ArchiveType::TarLzip),
-    //         ("test.tlz", ArchiveType::TarLzma),
-    //         ("test.tar.lzma", ArchiveType::TarLzma),
-    //         ("test.tar.lzo", ArchiveType::TarLzop),
-    //         ("test.txz", ArchiveType::TarXz),
-    //         ("test.tar.xz", ArchiveType::TarXz),
-    //         ("test.tZ", ArchiveType::TarCompress),
-    //         ("test.tar.Z", ArchiveType::TarCompress),
-    //         ("test.tzst", ArchiveType::TarZstd),
-    //         ("test.tar.zst", ArchiveType::TarZstd),
-    //     ];
-    //
-    //     for (name, expected_type) in extensions {
-    //         let result = archive_type(std::path::PathBuf::from(name));
-    //         assert!(result.is_ok(), "archive {} was not a valid name", name);
-    //         let unwrapped = result.unwrap();
-    //         assert_eq!(
-    //             expected_type, unwrapped,
-    //             "expected type={}, got={}",
-    //             expected_type, unwrapped
-    //         );
-    //     }
-    // }
+    #[test]
+    fn archive_extension() {
+        for (ext, archive_type) in TESTTABLE {
+            let filepath = PathBuf::from(format!("resources/test.{ext}"));
+            let result =
+                super::ArchiveType::match_extension(filepath.as_path());
+            assert!(
+                result.is_ok(),
+                "{} for file {}",
+                result.unwrap_err(),
+                filepath.display()
+            );
+            let result = result.unwrap();
+            assert_eq!(result, *archive_type);
+        }
+    }
+
+    #[test]
+    fn archive_type() {
+        for (ext, archive_type) in TESTTABLE {
+            let file = format!("resources/test.{ext}");
+            let result = super::determine_archive_type(&file);
+            assert!(result.is_ok());
+            let result = result.unwrap();
+            assert_eq!(result, *archive_type);
+        }
+    }
 }
